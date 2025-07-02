@@ -24,6 +24,12 @@ export default async function practitionerRoutes(server: FastifyInstance) {
     },
     async (request: FastifyRequest<{ Querystring: { organization?: string, name?: string, specialty?: string } }>, reply: FastifyReply) => {
     try {
+      server.log.info('Practitioner search request', { 
+        user: request.user.email, 
+        organizationIds: request.user.organizationIds,
+        query: request.query 
+      });
+
       const { organizationIds, currentOrganizationId } = request.user;
       const query = request.query;
 
@@ -36,21 +42,7 @@ export default async function practitionerRoutes(server: FastifyInstance) {
         }
       };
 
-      // Name filtering
-      if (query.name) {
-        where.name = {
-          path: '$[*].family',
-          string_contains: query.name
-        };
-      }
-
-      // Specialty filtering
-      if (query.specialty) {
-        where.specialty = {
-          path: '$[*].coding[*].code',
-          array_contains: query.specialty
-        };
-      }
+      server.log.info('Practitioner query where clause', { where });
 
       const practitioners = await server.prisma.practitioner.findMany({
         where,
@@ -65,7 +57,34 @@ export default async function practitionerRoutes(server: FastifyInstance) {
         }
       });
 
-      const entries = practitioners.map(practitioner => ({
+      server.log.info('Found practitioners', { count: practitioners.length });
+
+      // Filter by name in memory if needed
+      let filteredPractitioners = practitioners;
+      if (query.name) {
+        filteredPractitioners = practitioners.filter(practitioner => {
+          const names = practitioner.name as any[];
+          return names.some(name => 
+            name.family?.toLowerCase().includes(query.name!.toLowerCase()) ||
+            name.given?.some((given: string) => given.toLowerCase().includes(query.name!.toLowerCase()))
+          );
+        });
+      }
+
+      // Filter by specialty in memory if needed
+      if (query.specialty) {
+        filteredPractitioners = filteredPractitioners.filter(practitioner => {
+          const specialties = practitioner.specialty as any[];
+          return specialties?.some(spec => 
+            spec.coding?.some((coding: any) => 
+              coding.code?.toLowerCase().includes(query.specialty!.toLowerCase()) ||
+              coding.display?.toLowerCase().includes(query.specialty!.toLowerCase())
+            )
+          );
+        });
+      }
+
+      const entries = filteredPractitioners.map(practitioner => ({
         fullUrl: `${request.protocol}://${request.hostname}/fhir/Practitioner/${practitioner.id}`,
         resource: transformPractitionerFromDB(practitioner, { includeOrganizations: true })
       }));

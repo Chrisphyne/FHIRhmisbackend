@@ -57,6 +57,10 @@ server.addHook('onReady', async () => {
   try {
     await prisma.$connect();
     server.log.info('✅ Database connected successfully');
+    
+    // Test a simple query
+    const result = await prisma.$queryRaw`SELECT 1 as test`;
+    server.log.info('✅ Database query test successful', { result });
   } catch (error) {
     server.log.error('❌ Database connection failed:', error);
     throw error;
@@ -175,6 +179,8 @@ await server.register(authMiddleware);
 // Register routes with correct prefixes
 await server.register(authRoutes, { prefix: config.api.basePath + "/auth" });
 await server.register(organizationRoutes, { prefix: "" }); // This handles both /api and /fhir routes
+
+// Register FHIR routes with proper prefix
 await server.register(practitionerRoutes, { prefix: config.api.fhirPath });
 await server.register(patientRoutes, { prefix: config.api.fhirPath });
 await server.register(appointmentRoutes, { prefix: config.api.fhirPath });
@@ -290,11 +296,21 @@ server.get("/test", async (request, reply) => {
     // Test database connection
     const result = await prisma.$queryRaw`SELECT 1 as test`;
     
+    // Test organization count
+    const orgCount = await prisma.organization.count();
+    
+    // Test user count
+    const userCount = await prisma.user.count();
+    
     reply.send({
       message: "Test endpoint working",
       database: "connected",
       timestamp: new Date().toISOString(),
-      result
+      result,
+      counts: {
+        organizations: orgCount,
+        users: userCount
+      }
     });
   } catch (error) {
     server.log.error('Test endpoint error:', error);
@@ -304,6 +320,15 @@ server.get("/test", async (request, reply) => {
       timestamp: new Date().toISOString()
     });
   }
+});
+
+// Debug endpoint to check routes
+server.get("/debug/routes", async (request, reply) => {
+  const routes = server.printRoutes();
+  reply.send({
+    message: "Registered routes",
+    routes: routes
+  });
 });
 
 // Global error handler
@@ -429,6 +454,9 @@ const start = async () => {
     );
     server.log.info(
       `🧪 Test Endpoint: http://localhost:${config.server.port}/test`,
+    );
+    server.log.info(
+      `🔍 Debug Routes: http://localhost:${config.server.port}/debug/routes`,
     );
 
     if (config.development.enableSwagger) {

@@ -24,57 +24,31 @@ export default async function patientRoutes(server: FastifyInstance) {
     },
     async (request: FastifyRequest<{ Querystring: { organization?: string, name?: string, birthdate?: string } }>, reply: FastifyReply) => {
     try {
+      server.log.info('Patient search request', { 
+        user: request.user.email, 
+        organizationIds: request.user.organizationIds,
+        query: request.query 
+      });
+
       const { organizationIds, currentOrganizationId } = request.user;
       const query = request.query;
 
-      let where: any = {};
-
-      // Organization filtering
-      if (query.organization === 'current') {
-        where.organizations = {
-          some: {
-            organizationId: currentOrganizationId,
-            status: 'active'
-          }
-        };
-      } else if (query.organization === 'all') {
-        where.organizations = {
+      // Simple approach - get all patients for user's organizations first
+      let where: any = {
+        organizations: {
           some: {
             organizationId: { in: organizationIds },
             status: 'active'
           }
-        };
-      } else if (query.organization) {
-        if (!organizationIds.includes(query.organization)) {
-          return reply.code(403).send(createOperationOutcome("error", "forbidden", "No access to specified organization"));
         }
-        where.organizations = {
-          some: {
-            organizationId: query.organization,
-            status: 'active'
-          }
-        };
-      } else {
-        where.organizations = {
-          some: {
-            organizationId: currentOrganizationId,
-            status: 'active'
-          }
-        };
-      }
+      };
 
-      // Name filtering
-      if (query.name) {
-        where.name = {
-          path: '$[*].family',
-          string_contains: query.name
-        };
-      }
-
-      // Birth date filtering
+      // Birth date filtering (simple date match)
       if (query.birthdate) {
         where.birthDate = new Date(query.birthdate);
       }
+
+      server.log.info('Patient query where clause', { where });
 
       const patients = await server.prisma.patient.findMany({
         where,
@@ -89,7 +63,21 @@ export default async function patientRoutes(server: FastifyInstance) {
         }
       });
 
-      const entries = patients.map(patient => ({
+      server.log.info('Found patients', { count: patients.length });
+
+      // Filter by name in memory if needed (to avoid complex JSON queries)
+      let filteredPatients = patients;
+      if (query.name) {
+        filteredPatients = patients.filter(patient => {
+          const names = patient.name as any[];
+          return names.some(name => 
+            name.family?.toLowerCase().includes(query.name!.toLowerCase()) ||
+            name.given?.some((given: string) => given.toLowerCase().includes(query.name!.toLowerCase()))
+          );
+        });
+      }
+
+      const entries = filteredPatients.map(patient => ({
         fullUrl: `${request.protocol}://${request.hostname}/fhir/Patient/${patient.id}`,
         resource: transformPatientFromDB(patient, { includeOrganizations: true })
       }));
