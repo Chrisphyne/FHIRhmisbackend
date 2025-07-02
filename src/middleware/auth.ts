@@ -18,6 +18,7 @@ export default async function authMiddleware(server: FastifyInstance) {
         "/health",
         "/metrics",
         "/test",
+        "/debug",
         `${config.api.basePath}/auth/login`,
         `${config.api.basePath}/auth/register`,
         "/docs",
@@ -32,8 +33,8 @@ export default async function authMiddleware(server: FastifyInstance) {
         (route) => request.url.startsWith(route) || request.url === route,
       );
 
-      // Also skip auth for Swagger UI static files
-      if (request.url.includes("/docs/") || request.url.includes("/static/")) {
+      // Also skip auth for Swagger UI static files and debug routes
+      if (request.url.includes("/docs/") || request.url.includes("/static/") || request.url.startsWith("/debug")) {
         return;
       }
 
@@ -42,6 +43,8 @@ export default async function authMiddleware(server: FastifyInstance) {
       }
 
       try {
+        server.log.info(`Auth check for ${request.method} ${request.url}`);
+
         // Extract token from Authorization header
         const authorization = request.headers.authorization;
         if (!authorization) {
@@ -80,6 +83,8 @@ export default async function authMiddleware(server: FastifyInstance) {
           role: string;
         };
 
+        server.log.info(`Token decoded for user: ${decoded.email}`);
+
         // Get user with organization access
         const user = await server.prisma.user.findUnique({
           where: { id: decoded.userId },
@@ -109,8 +114,10 @@ export default async function authMiddleware(server: FastifyInstance) {
           return;
         }
 
+        server.log.info(`User found: ${user.email}, organization access count: ${user.organizationAccess.length}`);
+
         // Set user context
-        const organizationIds = user.organizationAccess.map(
+        let organizationIds = user.organizationAccess.map(
           (access) => access.organizationId,
         );
         
@@ -118,51 +125,45 @@ export default async function authMiddleware(server: FastifyInstance) {
         if (organizationIds.length === 0 && user.role === 'super_admin') {
           server.log.info(`Super admin ${user.email} has no organization access, granting access to all organizations`);
           
-          // Get all organizations
-          const allOrganizations = await server.prisma.organization.findMany({
-            where: { active: true },
-            select: { id: true }
-          });
+          try {
+            // Get all organizations
+            const allOrganizations = await server.prisma.organization.findMany({
+              where: { active: true },
+              select: { id: true, name: true }
+            });
 
-          // Create access for all organizations
-          for (const org of allOrganizations) {
-            await server.prisma.userOrganizationAccess.create({
-              data: {
-                userId: user.id,
-                organizationId: org.id,
-                role: 'admin',
-                status: 'active'
+            server.log.info(`Found ${allOrganizations.length} organizations to grant access to`);
+
+            // Create access for all organizations
+            for (const org of allOrganizations) {
+              try {
+                await server.prisma.userOrganizationAccess.create({
+                  data: {
+                    userId: user.id,
+                    organizationId: org.id,
+                    role: 'admin',
+                    status: 'active'
+                  }
+                });
+                server.log.info(`Created access for ${user.email} to ${org.name}`);
+              } catch (error) {
+                server.log.warn(`Failed to create organization access for ${org.id}: ${error.message}`);
               }
-            }).catch(error => {
-              server.log.warn(`Failed to create organization access: ${error.message}`);
-            });
-          }
+            }
 
-          // Update primary organization if not set
-          if (!user.primaryOrganizationId && allOrganizations.length > 0) {
-            await server.prisma.user.update({
-              where: { id: user.id },
-              data: { primaryOrganizationId: allOrganizations[0].id }
-            });
-          }
+            // Update primary organization if not set
+            if (!user.primaryOrganizationId && allOrganizations.length > 0) {
+              await server.prisma.user.update({
+                where: { id: user.id },
+                data: { primaryOrganizationId: allOrganizations[0].id }
+              });
+              server.log.info(`Set primary organization for ${user.email} to ${allOrganizations[0].name}`);
+            }
 
-          // Refresh user data
-          const updatedUser = await server.prisma.user.findUnique({
-            where: { id: decoded.userId },
-            include: {
-              organizationAccess: {
-                where: { status: "active" },
-                include: {
-                  organization: {
-                    select: { id: true, name: true, active: true },
-                  },
-                },
-              },
-            },
-          });
-
-          if (updatedUser) {
-            organizationIds.push(...updatedUser.organizationAccess.map(access => access.organizationId));
+            // Update organizationIds for this request
+            organizationIds = allOrganizations.map(org => org.id);
+          } catch (error) {
+            server.log.error(`Failed to grant organization access to super admin: ${error}`);
           }
         }
 
@@ -199,7 +200,7 @@ export default async function authMiddleware(server: FastifyInstance) {
           organizationAccess: user.organizationAccess,
         };
 
-        server.log.info(`Authenticated user: ${user.email} for ${request.url} with orgs: [${organizationIds.join(', ')}]`);
+        server.log.info(`Authenticated user: ${user.email} for ${request.url} with orgs: [${organizationIds.join(', ')}], current: ${currentOrganizationId}`);
       } catch (error) {
         server.log.error("Auth middleware error:", error);
 
@@ -227,9 +228,9 @@ export default async function authMiddleware(server: FastifyInstance) {
         }
 
         reply
-          .code(401)
+          .code(500)
           .send(
-            createOperationOutcome("error", "unauthorized", "Invalid token"),
+            createOperationOutcome("error", "exception", `Authentication error: ${error.message}`),
           );
       }
     },

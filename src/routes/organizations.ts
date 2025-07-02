@@ -186,6 +186,11 @@ export default async function organizationRoutes(server: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        server.log.info('Organization search request', { 
+          user: request.user.email, 
+          organizationIds: request.user.organizationIds 
+        });
+
         const { organizationIds } = request.user;
 
         const organizations = await server.prisma.organization.findMany({
@@ -193,6 +198,8 @@ export default async function organizationRoutes(server: FastifyInstance) {
             id: { in: organizationIds },
           },
         });
+
+        server.log.info('Found organizations', { count: organizations.length });
 
         const entries = organizations.map((org) => ({
           fullUrl: `${request.protocol}://${request.hostname}/fhir/Organization/${org.id}`,
