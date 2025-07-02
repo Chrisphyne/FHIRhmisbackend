@@ -212,15 +212,14 @@ async function main() {
 
   const createdPractitioners = [];
   for (const practData of practitioners) {
-    // Check by NPI value instead of complex JSON query
+    // Use a simpler approach - check by a unique field or create directly
     const npiValue = practData.identifier[0].value;
-    const existingPract = await prisma.practitioner.findFirst({
-      where: {
-        identifier: {
-          path: '$[*].value',
-          array_contains: npiValue
-        }
-      }
+    
+    // Try to find existing practitioner by checking all practitioners and filtering in memory
+    const allPractitioners = await prisma.practitioner.findMany();
+    const existingPract = allPractitioners.find(p => {
+      const identifiers = p.identifier as any[];
+      return identifiers.some(id => id.value === npiValue);
     });
 
     if (existingPract) {
@@ -341,15 +340,14 @@ async function main() {
 
   const createdPatients = [];
   for (const patientData of patients) {
-    // Check by patient ID value
+    // Use a simpler approach for patients too
     const patientIdValue = patientData.identifier[0].value;
-    const existingPatient = await prisma.patient.findFirst({
-      where: {
-        identifier: {
-          path: '$[*].value',
-          array_contains: patientIdValue
-        }
-      }
+    
+    // Try to find existing patient by checking all patients and filtering in memory
+    const allPatients = await prisma.patient.findMany();
+    const existingPatient = allPatients.find(p => {
+      const identifiers = p.identifier as any[];
+      return identifiers.some(id => id.value === patientIdValue);
     });
 
     if (existingPatient) {
