@@ -5,7 +5,24 @@ import { FHIRPractitioner } from '../types/fhir.js';
 export default async function practitionerRoutes(server: FastifyInstance) {
 
   // GET /fhir/Practitioner - Search practitioners
-  server.get<{ Querystring: { organization?: string, name?: string, specialty?: string } }>('/fhir/Practitioner', async (request: FastifyRequest<{ Querystring: { organization?: string, name?: string, specialty?: string } }>, reply: FastifyReply) => {
+  server.get<{ Querystring: { organization?: string, name?: string, specialty?: string } }>(
+    '/Practitioner', 
+    {
+      schema: {
+        tags: ["Practitioners"],
+        description: "Search practitioners (FHIR)",
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            organization: { type: "string" },
+            name: { type: "string" },
+            specialty: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Querystring: { organization?: string, name?: string, specialty?: string } }>, reply: FastifyReply) => {
     try {
       const { organizationIds, currentOrganizationId } = request.user;
       const query = request.query;
@@ -63,7 +80,22 @@ export default async function practitionerRoutes(server: FastifyInstance) {
   });
 
   // GET /fhir/Practitioner/:id - Get practitioner by ID
-  server.get<{ Params: { id: string } }>('/fhir/Practitioner/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  server.get<{ Params: { id: string } }>(
+    '/Practitioner/:id',
+    {
+      schema: {
+        tags: ["Practitioners"],
+        description: "Get practitioner by ID (FHIR)",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationIds } = request.user;
@@ -102,7 +134,29 @@ export default async function practitionerRoutes(server: FastifyInstance) {
   });
 
   // POST /fhir/Practitioner - Create practitioner
-  server.post<{ Body: FHIRPractitioner }>('/fhir/Practitioner', async (request: FastifyRequest<{ Body: FHIRPractitioner }>, reply: FastifyReply) => {
+  server.post<{ Body: FHIRPractitioner }>(
+    '/Practitioner',
+    {
+      schema: {
+        tags: ["Practitioners"],
+        description: "Create practitioner (FHIR)",
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["resourceType", "name"],
+          properties: {
+            resourceType: { type: "string", enum: ["Practitioner"] },
+            name: { type: "array" },
+            active: { type: "boolean" },
+            identifier: { type: "array" },
+            telecom: { type: "array" },
+            gender: { type: "string" },
+            birthDate: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Body: FHIRPractitioner }>, reply: FastifyReply) => {
     try {
       const { currentOrganizationId } = request.user;
       const practitionerData = transformPractitionerToDB(request.body);
@@ -131,7 +185,35 @@ export default async function practitionerRoutes(server: FastifyInstance) {
   });
 
   // PUT /fhir/Practitioner/:id - Update practitioner
-  server.put<{ Params: { id: string }, Body: FHIRPractitioner }>('/fhir/Practitioner/:id', async (request: FastifyRequest<{ Params: { id: string }, Body: FHIRPractitioner }>, reply: FastifyReply) => {
+  server.put<{ Params: { id: string }, Body: FHIRPractitioner }>(
+    '/Practitioner/:id',
+    {
+      schema: {
+        tags: ["Practitioners"],
+        description: "Update practitioner (FHIR)",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["resourceType", "name"],
+          properties: {
+            resourceType: { type: "string", enum: ["Practitioner"] },
+            name: { type: "array" },
+            active: { type: "boolean" },
+            identifier: { type: "array" },
+            telecom: { type: "array" },
+            gender: { type: "string" },
+            birthDate: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string }, Body: FHIRPractitioner }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationIds } = request.user;
@@ -169,7 +251,31 @@ export default async function practitionerRoutes(server: FastifyInstance) {
   });
 
   // POST /fhir/Practitioner/:id/assign-organization - Assign practitioner to organization
-  server.post<{ Params: { id: string }, Body: { organizationId: string, role?: string, permissions?: any } }>('/fhir/Practitioner/:id/assign-organization', async (request: FastifyRequest<{ Params: { id: string }, Body: { organizationId: string, role?: string, permissions?: any } }>, reply: FastifyReply) => {
+  server.post<{ Params: { id: string }, Body: { organizationId: string, role?: string, permissions?: any } }>(
+    '/Practitioner/:id/assign-organization',
+    {
+      schema: {
+        tags: ["Practitioners"],
+        description: "Assign practitioner to organization",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["organizationId"],
+          properties: {
+            organizationId: { type: "string" },
+            role: { type: "string" },
+            permissions: { type: "object" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string }, Body: { organizationId: string, role?: string, permissions?: any } }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationId, role = 'consulting', permissions } = request.body;

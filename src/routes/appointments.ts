@@ -5,7 +5,25 @@ import { FHIRAppointment } from '../types/fhir.js';
 export default async function appointmentRoutes(server: FastifyInstance) {
 
   // GET /fhir/Appointment - Search appointments
-  server.get<{ Querystring: { patient?: string, practitioner?: string, date?: string, status?: string } }>('/fhir/Appointment', async (request: FastifyRequest<{ Querystring: { patient?: string, practitioner?: string, date?: string, status?: string } }>, reply: FastifyReply) => {
+  server.get<{ Querystring: { patient?: string, practitioner?: string, date?: string, status?: string } }>(
+    '/Appointment',
+    {
+      schema: {
+        tags: ["Appointments"],
+        description: "Search appointments (FHIR)",
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            patient: { type: "string" },
+            practitioner: { type: "string" },
+            date: { type: "string" },
+            status: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Querystring: { patient?: string, practitioner?: string, date?: string, status?: string } }>, reply: FastifyReply) => {
     try {
       const { organizationIds, currentOrganizationId } = request.user;
       const query = request.query;
@@ -71,7 +89,22 @@ export default async function appointmentRoutes(server: FastifyInstance) {
   });
 
   // GET /fhir/Appointment/:id - Get appointment by ID
-  server.get<{ Params: { id: string } }>('/fhir/Appointment/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  server.get<{ Params: { id: string } }>(
+    '/Appointment/:id',
+    {
+      schema: {
+        tags: ["Appointments"],
+        description: "Get appointment by ID (FHIR)",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationIds } = request.user;
@@ -107,7 +140,31 @@ export default async function appointmentRoutes(server: FastifyInstance) {
   });
 
   // POST /fhir/Appointment - Create appointment
-  server.post<{ Body: FHIRAppointment & { patientId: string, practitionerId: string } }>('/fhir/Appointment', async (request: FastifyRequest<{ Body: FHIRAppointment & { patientId: string, practitionerId: string } }>, reply: FastifyReply) => {
+  server.post<{ Body: FHIRAppointment & { patientId: string, practitionerId: string } }>(
+    '/Appointment',
+    {
+      schema: {
+        tags: ["Appointments"],
+        description: "Create appointment (FHIR)",
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["resourceType", "status", "patientId", "practitionerId"],
+          properties: {
+            resourceType: { type: "string", enum: ["Appointment"] },
+            status: { type: "string" },
+            patientId: { type: "string" },
+            practitionerId: { type: "string" },
+            start: { type: "string" },
+            end: { type: "string" },
+            description: { type: "string" },
+            comment: { type: "string" },
+            minutesDuration: { type: "number" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Body: FHIRAppointment & { patientId: string, practitionerId: string } }>, reply: FastifyReply) => {
     try {
       const { currentOrganizationId } = request.user;
       const { patientId, practitionerId, ...appointmentData } = request.body;
@@ -160,7 +217,35 @@ export default async function appointmentRoutes(server: FastifyInstance) {
   });
 
   // PUT /fhir/Appointment/:id - Update appointment
-  server.put<{ Params: { id: string }, Body: FHIRAppointment }>('/fhir/Appointment/:id', async (request: FastifyRequest<{ Params: { id: string }, Body: FHIRAppointment }>, reply: FastifyReply) => {
+  server.put<{ Params: { id: string }, Body: FHIRAppointment }>(
+    '/Appointment/:id',
+    {
+      schema: {
+        tags: ["Appointments"],
+        description: "Update appointment (FHIR)",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["resourceType", "status"],
+          properties: {
+            resourceType: { type: "string", enum: ["Appointment"] },
+            status: { type: "string" },
+            start: { type: "string" },
+            end: { type: "string" },
+            description: { type: "string" },
+            comment: { type: "string" },
+            minutesDuration: { type: "number" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string }, Body: FHIRAppointment }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationIds } = request.user;
@@ -205,7 +290,22 @@ export default async function appointmentRoutes(server: FastifyInstance) {
   });
 
   // DELETE /fhir/Appointment/:id - Cancel appointment
-  server.delete<{ Params: { id: string } }>('/fhir/Appointment/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  server.delete<{ Params: { id: string } }>(
+    '/Appointment/:id',
+    {
+      schema: {
+        tags: ["Appointments"],
+        description: "Cancel appointment (FHIR)",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationIds } = request.user;

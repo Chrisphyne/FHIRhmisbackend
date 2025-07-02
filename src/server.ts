@@ -99,7 +99,7 @@ if (config.development.enableSwagger) {
           email: "support@wellplace.com",
         },
       },
-      host: `${config.server.host}:${config.server.port}`,
+      host: `localhost:${config.server.port}`,
       schemes: ["http", "https"],
       consumes: ["application/json", "multipart/form-data"],
       produces: ["application/json"],

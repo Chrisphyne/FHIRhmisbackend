@@ -5,7 +5,24 @@ import { FHIRPatient } from '../types/fhir.js';
 export default async function patientRoutes(server: FastifyInstance) {
 
   // GET /fhir/Patient - Search patients across user's organizations
-  server.get<{ Querystring: { organization?: string, name?: string, birthdate?: string } }>('/fhir/Patient', async (request: FastifyRequest<{ Querystring: { organization?: string, name?: string, birthdate?: string } }>, reply: FastifyReply) => {
+  server.get<{ Querystring: { organization?: string, name?: string, birthdate?: string } }>(
+    '/Patient',
+    {
+      schema: {
+        tags: ["Patients"],
+        description: "Search patients (FHIR)",
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            organization: { type: "string" },
+            name: { type: "string" },
+            birthdate: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Querystring: { organization?: string, name?: string, birthdate?: string } }>, reply: FastifyReply) => {
     try {
       const { organizationIds, currentOrganizationId } = request.user;
       const query = request.query;
@@ -87,7 +104,22 @@ export default async function patientRoutes(server: FastifyInstance) {
   });
 
   // GET /fhir/Patient/:id - Get patient by ID
-  server.get<{ Params: { id: string } }>('/fhir/Patient/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  server.get<{ Params: { id: string } }>(
+    '/Patient/:id',
+    {
+      schema: {
+        tags: ["Patients"],
+        description: "Get patient by ID (FHIR)",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationIds } = request.user;
@@ -126,7 +158,30 @@ export default async function patientRoutes(server: FastifyInstance) {
   });
 
   // POST /fhir/Patient - Create patient with organization assignment
-  server.post<{ Body: FHIRPatient }>('/fhir/Patient', async (request: FastifyRequest<{ Body: FHIRPatient }>, reply: FastifyReply) => {
+  server.post<{ Body: FHIRPatient }>(
+    '/Patient',
+    {
+      schema: {
+        tags: ["Patients"],
+        description: "Create patient (FHIR)",
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["resourceType", "name"],
+          properties: {
+            resourceType: { type: "string", enum: ["Patient"] },
+            name: { type: "array" },
+            active: { type: "boolean" },
+            identifier: { type: "array" },
+            telecom: { type: "array" },
+            gender: { type: "string" },
+            birthDate: { type: "string" },
+            address: { type: "array" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Body: FHIRPatient }>, reply: FastifyReply) => {
     try {
       const { currentOrganizationId } = request.user;
       const patientData = transformPatientToDB(request.body);
@@ -154,7 +209,36 @@ export default async function patientRoutes(server: FastifyInstance) {
   });
 
   // PUT /fhir/Patient/:id - Update patient
-  server.put<{ Params: { id: string }, Body: FHIRPatient }>('/fhir/Patient/:id', async (request: FastifyRequest<{ Params: { id: string }, Body: FHIRPatient }>, reply: FastifyReply) => {
+  server.put<{ Params: { id: string }, Body: FHIRPatient }>(
+    '/Patient/:id',
+    {
+      schema: {
+        tags: ["Patients"],
+        description: "Update patient (FHIR)",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["resourceType", "name"],
+          properties: {
+            resourceType: { type: "string", enum: ["Patient"] },
+            name: { type: "array" },
+            active: { type: "boolean" },
+            identifier: { type: "array" },
+            telecom: { type: "array" },
+            gender: { type: "string" },
+            birthDate: { type: "string" },
+            address: { type: "array" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string }, Body: FHIRPatient }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationIds } = request.user;
@@ -192,7 +276,30 @@ export default async function patientRoutes(server: FastifyInstance) {
   });
 
   // POST /fhir/Patient/:id/assign-organization - Assign patient to additional organization
-  server.post<{ Params: { id: string }, Body: { organizationId: string, relationship?: string } }>('/fhir/Patient/:id/assign-organization', async (request: FastifyRequest<{ Params: { id: string }, Body: { organizationId: string, relationship?: string } }>, reply: FastifyReply) => {
+  server.post<{ Params: { id: string }, Body: { organizationId: string, relationship?: string } }>(
+    '/Patient/:id/assign-organization',
+    {
+      schema: {
+        tags: ["Patients"],
+        description: "Assign patient to organization",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["organizationId"],
+          properties: {
+            organizationId: { type: "string" },
+            relationship: { type: "string" }
+          }
+        }
+      }
+    },
+    async (request: FastifyRequest<{ Params: { id: string }, Body: { organizationId: string, relationship?: string } }>, reply: FastifyReply) => {
     try {
       const { id } = request.params;
       const { organizationId, relationship = 'specialist' } = request.body;
