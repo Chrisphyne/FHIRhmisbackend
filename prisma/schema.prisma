@@ -1,0 +1,548 @@
+// Healthcare Management System - Multi-Organization Support
+// This schema supports FHIR-compliant healthcare data management
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Core User Authentication
+model User {
+  id                    String   @id @default(cuid())
+  email                 String   @unique
+  passwordHash          String
+  role                  String   // "super_admin", "org_admin", "practitioner", "staff", "readonly"
+  primaryOrganizationId String?
+  active                Boolean  @default(true)
+  lastLogin             DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relationships
+  organizationAccess    UserOrganizationAccess[]
+  auditLogs            AuditLog[]
+
+  @@map("users")
+}
+
+// Multi-organization access control
+model UserOrganizationAccess {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           String   // "admin", "practitioner", "staff", "readonly"
+  permissions    Json?    // Specific permissions within organization
+  status         String   @default("active") // "active", "inactive", "suspended"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("user_organization_access")
+}
+
+// Healthcare Organizations (Clinics, Hospitals, etc.)
+model Organization {
+  id          String   @id @default(cuid())
+  identifier  String   @unique // FHIR Identifier
+  name        String
+  type        String?  // "clinic", "hospital", "laboratory", "pharmacy"
+  active      Boolean  @default(true)
+  address     Json?    // FHIR Address array
+  telecom     Json?    // FHIR ContactPoint array
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  userAccess           UserOrganizationAccess[]
+  practitioners        PractitionerOrganization[]
+  patients             PatientOrganization[]
+  appointments         Appointment[]
+  encounters           Encounter[]
+  medications          Medication[]
+  medicationRequests   MedicationRequest[]
+  diagnosticReports    DiagnosticReport[]
+  observations         Observation[]
+  serviceRequests      ServiceRequest[]
+  inventoryItems       InventoryItem[]
+  equipment            Equipment[]
+  staff                Staff[]
+  invoices             Invoice[]
+  referrals            Referral[]
+  auditLogs            AuditLog[]
+
+  @@map("organizations")
+}
+
+// Healthcare Practitioners (Doctors, Nurses, etc.)
+model Practitioner {
+  id            String   @id @default(cuid())
+  identifier    Json     // FHIR Identifier array
+  active        Boolean  @default(true)
+  name          Json     // FHIR HumanName array
+  telecom       Json?    // FHIR ContactPoint array
+  address       Json?    // FHIR Address array
+  gender        String?
+  birthDate     DateTime?
+  qualification Json?    // FHIR Practitioner.qualification array
+  specialty     Json?    // FHIR CodeableConcept array
+  licenseNumber String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  organizations        PractitionerOrganization[]
+  appointments         Appointment[]
+  encounters           Encounter[]
+  medicationRequests   MedicationRequest[]
+  serviceRequests      ServiceRequest[]
+  referralsGiven       Referral[] @relation("ReferringPractitioner")
+  referralsReceived    Referral[] @relation("ReceivingPractitioner")
+
+  @@map("practitioners")
+}
+
+// Junction table for Practitioner-Organization relationships
+model PractitionerOrganization {
+  id             String   @id @default(cuid())
+  practitionerId String
+  organizationId String
+  role           String?  // "primary", "consulting", "temporary", "emergency"
+  status         String   @default("active") // "active", "inactive", "suspended"
+  startDate      DateTime @default(now())
+  endDate        DateTime?
+  permissions    Json?    // Role-specific permissions
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  practitioner   Practitioner @relation(fields: [practitionerId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([practitionerId, organizationId])
+  @@map("practitioner_organizations")
+}
+
+// Patients
+model Patient {
+  id            String   @id @default(cuid())
+  identifier    Json     // FHIR Identifier array
+  active        Boolean  @default(true)
+  name          Json     // FHIR HumanName array
+  telecom       Json?    // FHIR ContactPoint array
+  gender        String?
+  birthDate     DateTime?
+  address       Json?    // FHIR Address array
+  maritalStatus Json?    // FHIR CodeableConcept
+  contact       Json?    // FHIR Patient.contact array
+  emergencyContact Json? // Emergency contact information
+  insuranceInfo Json?   // Insurance information
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  organizations      PatientOrganization[]
+  appointments       Appointment[]
+  encounters         Encounter[]
+  medicationRequests MedicationRequest[]
+  diagnosticReports  DiagnosticReport[]
+  observations       Observation[]
+  serviceRequests    ServiceRequest[]
+  invoices           Invoice[]
+  referrals          Referral[]
+
+  @@map("patients")
+}
+
+// Junction table for Patient-Organization relationships
+model PatientOrganization {
+  id               String   @id @default(cuid())
+  patientId        String
+  organizationId   String
+  relationship     String?  // "primary", "specialist", "emergency", "referred"
+  status           String   @default("active") // "active", "inactive", "transferred"
+  registrationDate DateTime @default(now())
+  lastVisit        DateTime?
+  primaryCare      Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, organizationId])
+  @@map("patient_organizations")
+}
+
+// Staff members (non-practitioners)
+model Staff {
+  id             String   @id @default(cuid())
+  employeeId     String   @unique
+  name           Json     // FHIR HumanName
+  position       String   // "receptionist", "technician", "administrator", etc.
+  department     String?
+  email          String?
+  phone          String?
+  address        Json?
+  hireDate       DateTime
+  status         String   @default("active") // "active", "inactive", "terminated"
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("staff")
+}
+
+// Medical Equipment
+model Equipment {
+  id               String   @id @default(cuid())
+  name             String
+  type             String   // "diagnostic", "therapeutic", "monitoring", etc.
+  manufacturer     String?
+  model            String?
+  serialNumber     String?  @unique
+  status           String   @default("active") // "active", "maintenance", "retired"
+  location         String?  // Room/department location
+  purchaseDate     DateTime?
+  warrantyExpiry   DateTime?
+  lastMaintenance  DateTime?
+  nextMaintenance  DateTime?
+  organizationId   String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  maintenanceRecords MaintenanceRecord[]
+
+  @@map("equipment")
+}
+
+// Equipment Maintenance Records
+model MaintenanceRecord {
+  id          String   @id @default(cuid())
+  equipmentId String
+  type        String   // "routine", "repair", "calibration"
+  description String
+  cost        Float?
+  performedBy String
+  date        DateTime
+  nextDue     DateTime?
+  createdAt   DateTime @default(now())
+
+  // Relationships
+  equipment   Equipment @relation(fields: [equipmentId], references: [id])
+
+  @@map("maintenance_records")
+}
+
+// Inventory Items (supplies, medications, etc.)
+model InventoryItem {
+  id                String   @id @default(cuid())
+  name              String
+  category          String   // "medication", "supply", "equipment"
+  sku               String?  @unique
+  description       String?
+  unitOfMeasure     String   // "unit", "box", "bottle", etc.
+  currentStock      Int      @default(0)
+  minimumStock      Int      @default(0)
+  maximumStock      Int?
+  unitCost          Float?
+  supplier          String?
+  expirationDate    DateTime?
+  organizationId    String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relationships
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  transactions      InventoryTransaction[]
+
+  @@map("inventory_items")
+}
+
+// Inventory Transactions
+model InventoryTransaction {
+  id            String   @id @default(cuid())
+  itemId        String
+  type          String   // "in", "out", "adjustment"
+  quantity      Int
+  reason        String?  // "purchase", "usage", "expired", "damaged"
+  reference     String?  // Reference to related record (appointment, prescription, etc.)
+  performedBy   String
+  date          DateTime @default(now())
+  notes         String?
+
+  // Relationships
+  item          InventoryItem @relation(fields: [itemId], references: [id])
+
+  @@map("inventory_transactions")
+}
+
+// Appointments
+model Appointment {
+  id              String   @id @default(cuid())
+  identifier      Json?    // FHIR Identifier
+  status          String   // "booked", "arrived", "fulfilled", "cancelled", "noshow"
+  serviceType     Json?    // FHIR CodeableConcept
+  specialty       Json?    // FHIR CodeableConcept
+  appointmentType Json?    // FHIR CodeableConcept
+  reasonCode      Json?    // FHIR CodeableConcept array
+  description     String?
+  start           DateTime
+  end             DateTime
+  minutesDuration Int?
+  comment         String?
+  patientId       String
+  practitionerId  String
+  organizationId  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relationships
+  patient         Patient      @relation(fields: [patientId], references: [id])
+  practitioner    Practitioner @relation(fields: [practitionerId], references: [id])
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  encounters      Encounter[]
+
+  @@map("appointments")
+}
+
+// Clinical Encounters
+model Encounter {
+  id             String   @id @default(cuid())
+  identifier     Json?    // FHIR Identifier
+  status         String   // "planned", "arrived", "in-progress", "finished", "cancelled"
+  class          Json     // FHIR Coding
+  type           Json?    // FHIR CodeableConcept array
+  reasonCode     Json?    // FHIR CodeableConcept array
+  period         Json?    // FHIR Period
+  diagnosis      Json?    // FHIR Encounter.diagnosis array
+  patientId      String
+  practitionerId String
+  organizationId String
+  appointmentId  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  patient        Patient       @relation(fields: [patientId], references: [id])
+  practitioner   Practitioner  @relation(fields: [practitionerId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  appointment    Appointment?  @relation(fields: [appointmentId], references: [id])
+  observations   Observation[]
+  serviceRequests ServiceRequest[]
+
+  @@map("encounters")
+}
+
+// Medications
+model Medication {
+  id             String   @id @default(cuid())
+  identifier     Json?    // FHIR Identifier
+  code           Json     // FHIR CodeableConcept
+  status         String   @default("active") // "active", "inactive", "entered-in-error"
+  manufacturer   Json?    // FHIR Reference
+  form           Json?    // FHIR CodeableConcept
+  ingredient     Json?    // FHIR Medication.ingredient array
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  requests       MedicationRequest[]
+
+  @@map("medications")
+}
+
+// Medication Requests (Prescriptions)
+model MedicationRequest {
+  id                   String   @id @default(cuid())
+  identifier           Json?    // FHIR Identifier
+  status               String   // "active", "completed", "cancelled", "draft"
+  intent               String   // "proposal", "plan", "order"
+  medicationReference  String?  // Reference to Medication
+  medicationCodeable   Json?    // FHIR CodeableConcept
+  patientId            String
+  practitionerId       String
+  organizationId       String
+  authoredOn           DateTime @default(now())
+  reasonCode           Json?    // FHIR CodeableConcept array
+  dosageInstruction    Json?    // FHIR Dosage array
+  dispenseRequest      Json?    // FHIR MedicationRequest.dispenseRequest
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Relationships
+  patient              Patient       @relation(fields: [patientId], references: [id])
+  practitioner         Practitioner  @relation(fields: [practitionerId], references: [id])
+  organization         Organization  @relation(fields: [organizationId], references: [id])
+  medication           Medication?   @relation(fields: [medicationReference], references: [id])
+
+  @@map("medication_requests")
+}
+
+// Service Requests (Lab orders, Imaging, etc.)
+model ServiceRequest {
+  id             String   @id @default(cuid())
+  identifier     Json?    // FHIR Identifier
+  status         String   // "draft", "active", "completed", "cancelled"
+  intent         String   // "proposal", "plan", "order"
+  category       Json?    // FHIR CodeableConcept array
+  code           Json     // FHIR CodeableConcept
+  priority       String?  // "routine", "urgent", "asap", "stat"
+  patientId      String
+  practitionerId String
+  organizationId String
+  encounterId    String?
+  authoredOn     DateTime @default(now())
+  reasonCode     Json?    // FHIR CodeableConcept array
+  note           Json?    // FHIR Annotation array
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  patient        Patient       @relation(fields: [patientId], references: [id])
+  practitioner   Practitioner  @relation(fields: [practitionerId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  encounter      Encounter?    @relation(fields: [encounterId], references: [id])
+
+  @@map("service_requests")
+}
+
+// Diagnostic Reports
+model DiagnosticReport {
+  id             String   @id @default(cuid())
+  identifier     Json?    // FHIR Identifier
+  status         String   // "registered", "partial", "preliminary", "final", "amended"
+  category       Json?    // FHIR CodeableConcept array
+  code           Json     // FHIR CodeableConcept
+  patientId      String
+  effectiveDateTime DateTime?
+  issued         DateTime @default(now())
+  result         Json?    // FHIR Reference array to Observation
+  conclusion     String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  patient        Patient      @relation(fields: [patientId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("diagnostic_reports")
+}
+
+// Observations (Vital signs, Lab results, etc.)
+model Observation {
+  id             String   @id @default(cuid())
+  identifier     Json?    // FHIR Identifier
+  status         String   // "registered", "preliminary", "final", "amended", "cancelled"
+  category       Json?    // FHIR CodeableConcept array
+  code           Json     // FHIR CodeableConcept
+  patientId      String
+  encounterId    String?
+  effectiveDateTime DateTime?
+  issued         DateTime @default(now())
+  valueQuantity  Json?    // FHIR Quantity
+  valueCodeableConcept Json? // FHIR CodeableConcept
+  valueString    String?
+  interpretation Json?    // FHIR CodeableConcept array
+  note           Json?    // FHIR Annotation array
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  patient        Patient      @relation(fields: [patientId], references: [id])
+  encounter      Encounter?   @relation(fields: [encounterId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("observations")
+}
+
+// Referrals
+model Referral {
+  id                     String   @id @default(cuid())
+  identifier             Json?    // FHIR Identifier
+  status                 String   // "draft", "active", "completed", "cancelled"
+  type                   String   // "consultation", "transfer", "emergency"
+  priority               String?  // "routine", "urgent", "asap", "stat"
+  patientId              String
+  referringPractitionerId String
+  receivingPractitionerId String?
+  referringOrganizationId String
+  receivingOrganizationId String?
+  reasonCode             Json?    // FHIR CodeableConcept array
+  description            String?
+  requestedService       Json?    // FHIR CodeableConcept
+  supportingInfo         Json?    // Supporting information
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  // Relationships
+  patient                Patient       @relation(fields: [patientId], references: [id])
+  referringPractitioner  Practitioner  @relation("ReferringPractitioner", fields: [referringPractitionerId], references: [id])
+  receivingPractitioner  Practitioner? @relation("ReceivingPractitioner", fields: [receivingPractitionerId], references: [id])
+  referringOrganization  Organization  @relation(fields: [referringOrganizationId], references: [id])
+
+  @@map("referrals")
+}
+
+// Invoices/Billing
+model Invoice {
+  id             String   @id @default(cuid())
+  invoiceNumber  String   @unique
+  status         String   // "draft", "issued", "paid", "cancelled", "overdue"
+  patientId      String
+  organizationId String
+  totalAmount    Float
+  paidAmount     Float    @default(0)
+  currency       String   @default("USD")
+  issueDate      DateTime @default(now())
+  dueDate        DateTime
+  paidDate       DateTime?
+  lineItems      Json     // Invoice line items
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  patient        Patient      @relation(fields: [patientId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("invoices")
+}
+
+// Audit Log for tracking changes
+model AuditLog {
+  id             String   @id @default(cuid())
+  userId         String?
+  organizationId String?
+  resourceType   String   // "Patient", "Practitioner", etc.
+  resourceId     String
+  action         String   // "CREATE", "READ", "UPDATE", "DELETE"
+  changes        Json?    // What changed
+  ipAddress      String?
+  userAgent      String?
+  timestamp      DateTime @default(now())
+
+  // Relationships
+  user           User?        @relation(fields: [userId], references: [id])
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  @@map("audit_logs")
+}
