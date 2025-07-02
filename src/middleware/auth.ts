@@ -17,6 +17,7 @@ export default async function authMiddleware(server: FastifyInstance) {
       const publicRoutes = [
         "/health",
         "/metrics",
+        "/test",
         `${config.api.basePath}/auth/login`,
         `${config.api.basePath}/auth/register`,
         "/docs",
@@ -112,6 +113,59 @@ export default async function authMiddleware(server: FastifyInstance) {
         const organizationIds = user.organizationAccess.map(
           (access) => access.organizationId,
         );
+        
+        // If user has no organization access, create access to all organizations for super_admin
+        if (organizationIds.length === 0 && user.role === 'super_admin') {
+          server.log.info(`Super admin ${user.email} has no organization access, granting access to all organizations`);
+          
+          // Get all organizations
+          const allOrganizations = await server.prisma.organization.findMany({
+            where: { active: true },
+            select: { id: true }
+          });
+
+          // Create access for all organizations
+          for (const org of allOrganizations) {
+            await server.prisma.userOrganizationAccess.create({
+              data: {
+                userId: user.id,
+                organizationId: org.id,
+                role: 'admin',
+                status: 'active'
+              }
+            }).catch(error => {
+              server.log.warn(`Failed to create organization access: ${error.message}`);
+            });
+          }
+
+          // Update primary organization if not set
+          if (!user.primaryOrganizationId && allOrganizations.length > 0) {
+            await server.prisma.user.update({
+              where: { id: user.id },
+              data: { primaryOrganizationId: allOrganizations[0].id }
+            });
+          }
+
+          // Refresh user data
+          const updatedUser = await server.prisma.user.findUnique({
+            where: { id: decoded.userId },
+            include: {
+              organizationAccess: {
+                where: { status: "active" },
+                include: {
+                  organization: {
+                    select: { id: true, name: true, active: true },
+                  },
+                },
+              },
+            },
+          });
+
+          if (updatedUser) {
+            organizationIds.push(...updatedUser.organizationAccess.map(access => access.organizationId));
+          }
+        }
+
         const currentOrganizationId =
           (request.headers["x-organization-id"] as string) ||
           user.primaryOrganizationId ||
@@ -145,7 +199,7 @@ export default async function authMiddleware(server: FastifyInstance) {
           organizationAccess: user.organizationAccess,
         };
 
-        server.log.info(`Authenticated user: ${user.email} for ${request.url}`);
+        server.log.info(`Authenticated user: ${user.email} for ${request.url} with orgs: [${organizationIds.join(', ')}]`);
       } catch (error) {
         server.log.error("Auth middleware error:", error);
 

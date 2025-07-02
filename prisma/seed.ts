@@ -120,39 +120,33 @@ async function main() {
     }
   }
 
-  // Assign admin to all organizations
-  console.log('🔗 Assigning admin to organizations...');
+  // Assign admin to all organizations (force recreate to ensure access)
+  console.log('🔗 Ensuring admin has access to all organizations...');
+  
+  // Delete existing access first
+  await prisma.userOrganizationAccess.deleteMany({
+    where: { userId: adminUser.id }
+  });
+
+  // Create fresh access for all organizations
   for (const org of createdOrgs) {
-    const existingAccess = await prisma.userOrganizationAccess.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: adminUser.id,
-          organizationId: org.id
-        }
+    await prisma.userOrganizationAccess.create({
+      data: {
+        userId: adminUser.id,
+        organizationId: org.id,
+        role: 'admin',
+        status: 'active'
       }
     });
-
-    if (!existingAccess) {
-      await prisma.userOrganizationAccess.create({
-        data: {
-          userId: adminUser.id,
-          organizationId: org.id,
-          role: 'admin',
-          status: 'active'
-        }
-      });
-      console.log(`✅ Admin assigned to ${org.name}`);
-    }
+    console.log(`✅ Admin assigned to ${org.name}`);
   }
 
   // Update admin's primary organization
-  if (!adminUser.primaryOrganizationId) {
-    await prisma.user.update({
-      where: { id: adminUser.id },
-      data: { primaryOrganizationId: createdOrgs[0].id }
-    });
-    console.log('✅ Set primary organization for admin');
-  }
+  await prisma.user.update({
+    where: { id: adminUser.id },
+    data: { primaryOrganizationId: createdOrgs[0].id }
+  });
+  console.log('✅ Set primary organization for admin');
 
   // Create sample practitioners
   console.log('👨‍⚕️ Creating sample practitioners...');
@@ -218,11 +212,13 @@ async function main() {
 
   const createdPractitioners = [];
   for (const practData of practitioners) {
+    // Check by NPI value instead of complex JSON query
+    const npiValue = practData.identifier[0].value;
     const existingPract = await prisma.practitioner.findFirst({
       where: {
         identifier: {
           path: '$[*].value',
-          array_contains: practData.identifier[0].value
+          array_contains: npiValue
         }
       }
     });
@@ -345,11 +341,13 @@ async function main() {
 
   const createdPatients = [];
   for (const patientData of patients) {
+    // Check by patient ID value
+    const patientIdValue = patientData.identifier[0].value;
     const existingPatient = await prisma.patient.findFirst({
       where: {
         identifier: {
           path: '$[*].value',
-          array_contains: patientData.identifier[0].value
+          array_contains: patientIdValue
         }
       }
     });
