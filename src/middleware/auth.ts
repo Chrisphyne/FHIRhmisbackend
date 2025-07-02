@@ -23,6 +23,8 @@ export default async function authMiddleware(server: FastifyInstance) {
         "/docs/static",
         "/docs/json",
         "/docs/yaml",
+        "/docs/uiConfig",
+        "/docs/initOAuth",
       ];
 
       const isPublicRoute = publicRoutes.some(
@@ -42,6 +44,7 @@ export default async function authMiddleware(server: FastifyInstance) {
         // Extract token from Authorization header
         const authorization = request.headers.authorization;
         if (!authorization) {
+          server.log.warn(`Missing authorization header for ${request.url}`);
           reply
             .code(401)
             .send(
@@ -56,6 +59,7 @@ export default async function authMiddleware(server: FastifyInstance) {
 
         const token = authorization.replace("Bearer ", "");
         if (!token) {
+          server.log.warn(`Invalid authorization format for ${request.url}`);
           reply
             .code(401)
             .send(
@@ -91,6 +95,7 @@ export default async function authMiddleware(server: FastifyInstance) {
         });
 
         if (!user || !user.active) {
+          server.log.warn(`Invalid or inactive user: ${decoded.userId}`);
           reply
             .code(401)
             .send(
@@ -117,6 +122,7 @@ export default async function authMiddleware(server: FastifyInstance) {
           currentOrganizationId &&
           !organizationIds.includes(currentOrganizationId)
         ) {
+          server.log.warn(`No access to organization: ${currentOrganizationId} for user: ${user.id}`);
           reply
             .code(403)
             .send(
@@ -138,6 +144,8 @@ export default async function authMiddleware(server: FastifyInstance) {
           currentOrganizationId,
           organizationAccess: user.organizationAccess,
         };
+
+        server.log.info(`Authenticated user: ${user.email} for ${request.url}`);
       } catch (error) {
         server.log.error("Auth middleware error:", error);
 

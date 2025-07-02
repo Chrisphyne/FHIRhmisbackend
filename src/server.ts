@@ -52,6 +52,17 @@ declare module "fastify" {
 
 server.decorate("prisma", prisma);
 
+// Test database connection on startup
+server.addHook('onReady', async () => {
+  try {
+    await prisma.$connect();
+    server.log.info('✅ Database connected successfully');
+  } catch (error) {
+    server.log.error('❌ Database connection failed:', error);
+    throw error;
+  }
+});
+
 // Register plugins
 await server.register(cors, {
   origin: config.cors.enabled ? config.cors.origins : false,
@@ -214,6 +225,7 @@ server.get(
       await prisma.$queryRaw`SELECT 1`;
       healthCheck.services.database = "healthy";
     } catch (error) {
+      server.log.error('Database health check failed:', error);
       healthCheck.services.database = "unhealthy";
       healthCheck.status = "degraded";
     }
@@ -272,9 +284,31 @@ server.get(
   },
 );
 
+// Test endpoint for debugging (no auth required)
+server.get("/test", async (request, reply) => {
+  try {
+    // Test database connection
+    const result = await prisma.$queryRaw`SELECT 1 as test`;
+    
+    reply.send({
+      message: "Test endpoint working",
+      database: "connected",
+      timestamp: new Date().toISOString(),
+      result
+    });
+  } catch (error) {
+    server.log.error('Test endpoint error:', error);
+    reply.code(500).send({
+      message: "Test endpoint failed",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Global error handler
 server.setErrorHandler((error, request, reply) => {
-  server.log.error(error);
+  server.log.error("Global error handler:", error);
 
   // Handle validation errors
   if (error.validation) {
@@ -392,6 +426,9 @@ const start = async () => {
     server.log.info(`🔧 Environment: ${config.server.nodeEnv}`);
     server.log.info(
       `📊 Health Check: http://localhost:${config.server.port}/health`,
+    );
+    server.log.info(
+      `🧪 Test Endpoint: http://localhost:${config.server.port}/test`,
     );
 
     if (config.development.enableSwagger) {
