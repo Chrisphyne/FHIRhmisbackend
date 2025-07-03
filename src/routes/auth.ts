@@ -350,14 +350,18 @@ export default async function authRoutes(server: FastifyInstance) {
 
         reply.send({ token });
       } catch (error) {
-        server.log.error("Token refresh error:", error);
+        server.log.error("Token refresh error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Token refresh failed: ${error.message}`,
             ),
           );
       }
@@ -400,7 +404,19 @@ export default async function authRoutes(server: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        server.log.info(`🔍 Getting user info for: ${request.user?.email || 'unknown'}`);
+        
         const user = request.user;
+        if (!user) {
+          server.log.error('❌ No user found in request context');
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", "User not authenticated"),
+            );
+        }
+
+        server.log.info(`📊 Fetching fresh user data for: ${user.id}`);
 
         // Get fresh user data with organizations
         const userData = await server.prisma.user.findUnique({
@@ -418,6 +434,7 @@ export default async function authRoutes(server: FastifyInstance) {
         });
 
         if (!userData) {
+          server.log.error(`❌ User not found in database: ${user.id}`);
           return reply
             .code(404)
             .send(
@@ -425,7 +442,9 @@ export default async function authRoutes(server: FastifyInstance) {
             );
         }
 
-        reply.send({
+        server.log.info(`✅ User data retrieved successfully for: ${userData.email}`);
+
+        const response = {
           id: userData.id,
           email: userData.email,
           role: userData.role,
@@ -437,16 +456,24 @@ export default async function authRoutes(server: FastifyInstance) {
             role: access.role,
             permissions: access.permissions,
           })),
-        });
+        };
+
+        server.log.info(`📤 Sending user info response for: ${userData.email}`);
+        reply.send(response);
       } catch (error) {
-        server.log.error("Get user info error:", error);
+        server.log.error("Get user info error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email,
+          userId: request.user?.id
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Failed to get user info: ${error.message}`,
             ),
           );
       }
@@ -498,14 +525,18 @@ export default async function authRoutes(server: FastifyInstance) {
           ],
         });
       } catch (error) {
-        server.log.error("Logout error:", error);
+        server.log.error("Logout error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Logout failed: ${error.message}`,
             ),
           );
       }

@@ -42,6 +42,8 @@ export default async function organizationRoutes(server: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        server.log.info(`🔍 Getting user organizations for: ${request.user?.email}`);
+        
         const { id: userId } = request.user;
 
         const userAccess = await server.prisma.userOrganizationAccess.findMany({
@@ -62,6 +64,8 @@ export default async function organizationRoutes(server: FastifyInstance) {
           },
         });
 
+        server.log.info(`📊 Found ${userAccess.length} organization access records`);
+
         const organizations = userAccess.map((access) => ({
           id: access.organization.id,
           name: access.organization.name,
@@ -73,16 +77,21 @@ export default async function organizationRoutes(server: FastifyInstance) {
             access.organizationId === request.user.primaryOrganizationId,
         }));
 
+        server.log.info(`✅ Returning ${organizations.length} organizations`);
         reply.send({ organizations });
       } catch (error) {
-        server.log.error("Get user organizations error:", error);
+        server.log.error("Get user organizations error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Failed to get user organizations: ${error.message}`,
             ),
           );
       }
@@ -140,14 +149,18 @@ export default async function organizationRoutes(server: FastifyInstance) {
           currentOrganization: organizationId,
         });
       } catch (error) {
-        server.log.error("Switch organization error:", error);
+        server.log.error("Switch organization error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Failed to switch organization: ${error.message}`,
             ),
           );
       }
@@ -186,12 +199,18 @@ export default async function organizationRoutes(server: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        server.log.info('Organization search request', { 
-          user: request.user.email, 
-          organizationIds: request.user.organizationIds 
-        });
+        server.log.info(`🏥 Organization search request from: ${request.user?.email}`);
+        server.log.info(`📋 User organization IDs: [${request.user?.organizationIds?.join(', ')}]`);
 
         const { organizationIds } = request.user;
+
+        if (!organizationIds || organizationIds.length === 0) {
+          server.log.warn(`⚠️ User has no organization access: ${request.user?.email}`);
+          const bundle = createBundle("searchset", []);
+          return reply.send(bundle);
+        }
+
+        server.log.info(`🔍 Searching organizations with IDs: [${organizationIds.join(', ')}]`);
 
         const organizations = await server.prisma.organization.findMany({
           where: {
@@ -199,7 +218,7 @@ export default async function organizationRoutes(server: FastifyInstance) {
           },
         });
 
-        server.log.info('Found organizations', { count: organizations.length });
+        server.log.info(`📊 Found ${organizations.length} organizations`);
 
         const entries = organizations.map((org) => ({
           fullUrl: `${request.protocol}://${request.hostname}/fhir/Organization/${org.id}`,
@@ -207,16 +226,22 @@ export default async function organizationRoutes(server: FastifyInstance) {
         }));
 
         const bundle = createBundle("searchset", entries);
+        server.log.info(`✅ Returning bundle with ${entries.length} entries`);
         reply.send(bundle);
       } catch (error) {
-        server.log.error("Search organizations error:", error);
+        server.log.error("Search organizations error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email,
+          organizationIds: request.user?.organizationIds
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Failed to search organizations: ${error.message}`,
             ),
           );
       }
@@ -288,14 +313,18 @@ export default async function organizationRoutes(server: FastifyInstance) {
 
         reply.send(transformOrganizationFromDB(organization));
       } catch (error) {
-        server.log.error("Get organization error:", error);
+        server.log.error("Get organization error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Failed to get organization: ${error.message}`,
             ),
           );
       }
@@ -368,14 +397,18 @@ export default async function organizationRoutes(server: FastifyInstance) {
 
         reply.code(201).send(transformOrganizationFromDB(organization));
       } catch (error) {
-        server.log.error("Create organization error:", error);
+        server.log.error("Create organization error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Failed to create organization: ${error.message}`,
             ),
           );
       }
@@ -468,14 +501,18 @@ export default async function organizationRoutes(server: FastifyInstance) {
 
         reply.send(transformOrganizationFromDB(organization));
       } catch (error) {
-        server.log.error("Update organization error:", error);
+        server.log.error("Update organization error:", {
+          error: error.message,
+          stack: error.stack,
+          user: request.user?.email
+        });
         reply
           .code(500)
           .send(
             createOperationOutcome(
               "error",
               "exception",
-              "Internal server error",
+              `Failed to update organization: ${error.message}`,
             ),
           );
       }

@@ -67,6 +67,21 @@ server.addHook('onReady', async () => {
   }
 });
 
+// Add request logging hook
+server.addHook('onRequest', async (request, reply) => {
+  server.log.info(`🔄 ${request.method} ${request.url} - Starting request processing`);
+});
+
+// Add error logging hook
+server.addHook('onError', async (request, reply, error) => {
+  server.log.error(`❌ Error in ${request.method} ${request.url}:`, {
+    error: error.message,
+    stack: error.stack,
+    statusCode: error.statusCode,
+    code: error.code
+  });
+});
+
 // Register plugins
 await server.register(cors, {
   origin: config.cors.enabled ? config.cors.origins : false,
@@ -177,13 +192,50 @@ if (config.audit.enabled) {
 await server.register(authMiddleware);
 
 // Register routes with correct prefixes
-await server.register(authRoutes, { prefix: config.api.basePath + "/auth" });
-await server.register(organizationRoutes, { prefix: "" }); // This handles both /api and /fhir routes
+server.log.info('🔧 Registering routes...');
+
+try {
+  await server.register(authRoutes, { prefix: config.api.basePath + "/auth" });
+  server.log.info('✅ Auth routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register auth routes:', error);
+  throw error;
+}
+
+try {
+  await server.register(organizationRoutes, { prefix: "" }); // This handles both /api and /fhir routes
+  server.log.info('✅ Organization routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register organization routes:', error);
+  throw error;
+}
 
 // Register FHIR routes with proper prefix
-await server.register(practitionerRoutes, { prefix: config.api.fhirPath });
-await server.register(patientRoutes, { prefix: config.api.fhirPath });
-await server.register(appointmentRoutes, { prefix: config.api.fhirPath });
+try {
+  await server.register(practitionerRoutes, { prefix: config.api.fhirPath });
+  server.log.info('✅ Practitioner routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register practitioner routes:', error);
+  throw error;
+}
+
+try {
+  await server.register(patientRoutes, { prefix: config.api.fhirPath });
+  server.log.info('✅ Patient routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register patient routes:', error);
+  throw error;
+}
+
+try {
+  await server.register(appointmentRoutes, { prefix: config.api.fhirPath });
+  server.log.info('✅ Appointment routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register appointment routes:', error);
+  throw error;
+}
+
+server.log.info('✅ All routes registered successfully');
 
 // Health check endpoint with comprehensive checks
 server.get(
@@ -331,12 +383,24 @@ server.get("/debug/routes", async (request, reply) => {
   });
 });
 
-// Global error handler
+// Global error handler with detailed logging
 server.setErrorHandler((error, request, reply) => {
-  server.log.error("Global error handler:", error);
+  server.log.error("🚨 Global error handler triggered:", {
+    url: request.url,
+    method: request.method,
+    headers: request.headers,
+    error: {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      statusCode: error.statusCode
+    }
+  });
 
   // Handle validation errors
   if (error.validation) {
+    server.log.error("Validation error details:", error.validation);
     reply.code(400).send({
       error: "Validation Error",
       message: error.message,
@@ -388,7 +452,13 @@ server.setErrorHandler((error, request, reply) => {
         ? "An unexpected error occurred"
         : error.message,
     statusCode: 500,
-    ...(config.server.nodeEnv !== "production" && { stack: error.stack }),
+    ...(config.server.nodeEnv !== "production" && { 
+      stack: error.stack,
+      details: {
+        name: error.name,
+        code: error.code
+      }
+    }),
   });
 });
 
