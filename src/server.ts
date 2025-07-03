@@ -82,7 +82,7 @@ server.addHook('onError', async (request, reply, error) => {
   });
 });
 
-// Register plugins
+// Register plugins FIRST
 await server.register(cors, {
   origin: config.cors.enabled ? config.cors.origins : false,
   credentials: true,
@@ -184,7 +184,7 @@ if (config.development.enableSwagger) {
   });
 }
 
-// Register middleware BEFORE routes
+// Register middleware BEFORE routes - CRITICAL ORDER
 server.log.info('🔧 Registering middleware...');
 
 if (config.audit.enabled) {
@@ -197,61 +197,16 @@ if (config.audit.enabled) {
   }
 }
 
+// Register auth middleware GLOBALLY
 try {
   await server.register(authMiddleware);
-  server.log.info('✅ Auth middleware registered');
+  server.log.info('✅ Auth middleware registered GLOBALLY');
 } catch (error) {
   server.log.error('❌ Failed to register auth middleware:', error);
   throw error;
 }
 
-// Register routes with correct prefixes
-server.log.info('🔧 Registering routes...');
-
-try {
-  await server.register(authRoutes, { prefix: config.api.basePath + "/auth" });
-  server.log.info('✅ Auth routes registered');
-} catch (error) {
-  server.log.error('❌ Failed to register auth routes:', error);
-  throw error;
-}
-
-try {
-  await server.register(organizationRoutes, { prefix: "" }); // This handles both /api and /fhir routes
-  server.log.info('✅ Organization routes registered');
-} catch (error) {
-  server.log.error('❌ Failed to register organization routes:', error);
-  throw error;
-}
-
-// Register FHIR routes with proper prefix
-try {
-  await server.register(practitionerRoutes, { prefix: config.api.fhirPath });
-  server.log.info('✅ Practitioner routes registered');
-} catch (error) {
-  server.log.error('❌ Failed to register practitioner routes:', error);
-  throw error;
-}
-
-try {
-  await server.register(patientRoutes, { prefix: config.api.fhirPath });
-  server.log.info('✅ Patient routes registered');
-} catch (error) {
-  server.log.error('❌ Failed to register patient routes:', error);
-  throw error;
-}
-
-try {
-  await server.register(appointmentRoutes, { prefix: config.api.fhirPath });
-  server.log.info('✅ Appointment routes registered');
-} catch (error) {
-  server.log.error('❌ Failed to register appointment routes:', error);
-  throw error;
-}
-
-server.log.info('✅ All routes registered successfully');
-
-// Health check endpoint with comprehensive checks
+// Health check endpoint (public - no auth required)
 server.get(
   "/health",
   {
@@ -396,6 +351,52 @@ server.get("/debug/routes", async (request, reply) => {
     routes: routes
   });
 });
+
+// Register routes AFTER middleware
+server.log.info('🔧 Registering routes...');
+
+try {
+  await server.register(authRoutes, { prefix: config.api.basePath + "/auth" });
+  server.log.info('✅ Auth routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register auth routes:', error);
+  throw error;
+}
+
+try {
+  await server.register(organizationRoutes, { prefix: "" }); // This handles both /api and /fhir routes
+  server.log.info('✅ Organization routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register organization routes:', error);
+  throw error;
+}
+
+// Register FHIR routes with proper prefix
+try {
+  await server.register(practitionerRoutes, { prefix: config.api.fhirPath });
+  server.log.info('✅ Practitioner routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register practitioner routes:', error);
+  throw error;
+}
+
+try {
+  await server.register(patientRoutes, { prefix: config.api.fhirPath });
+  server.log.info('✅ Patient routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register patient routes:', error);
+  throw error;
+}
+
+try {
+  await server.register(appointmentRoutes, { prefix: config.api.fhirPath });
+  server.log.info('✅ Appointment routes registered');
+} catch (error) {
+  server.log.error('❌ Failed to register appointment routes:', error);
+  throw error;
+}
+
+server.log.info('✅ All routes registered successfully');
 
 // Global error handler with detailed logging
 server.setErrorHandler((error, request, reply) => {
