@@ -35,6 +35,7 @@ export default async function authMiddleware(server: FastifyInstance) {
 
       // Also skip auth for Swagger UI static files and debug routes
       if (request.url.includes("/docs/") || request.url.includes("/static/") || request.url.startsWith("/debug")) {
+        server.log.info(`🔓 Skipping auth for static/docs route: ${request.method} ${request.url}`);
         return;
       }
 
@@ -50,7 +51,7 @@ export default async function authMiddleware(server: FastifyInstance) {
         const authorization = request.headers.authorization;
         if (!authorization) {
           server.log.warn(`❌ Missing authorization header for ${request.url}`);
-          reply
+          return reply
             .code(401)
             .send(
               createOperationOutcome(
@@ -59,13 +60,12 @@ export default async function authMiddleware(server: FastifyInstance) {
                 "Missing authorization header",
               ),
             );
-          return;
         }
 
         const token = authorization.replace("Bearer ", "");
         if (!token) {
           server.log.warn(`❌ Invalid authorization format for ${request.url}`);
-          reply
+          return reply
             .code(401)
             .send(
               createOperationOutcome(
@@ -74,19 +74,55 @@ export default async function authMiddleware(server: FastifyInstance) {
                 "Invalid authorization format",
               ),
             );
-          return;
         }
 
         server.log.info(`🔍 Verifying JWT token: ${token.substring(0, 20)}...`);
 
         // Verify JWT token
-        const decoded = server.jwt.verify(token) as {
-          userId: string;
-          email: string;
-          role: string;
-        };
+        let decoded;
+        try {
+          decoded = server.jwt.verify(token) as {
+            userId: string;
+            email: string;
+            role: string;
+          };
+          server.log.info(`✅ Token decoded successfully for user: ${decoded.email} (ID: ${decoded.userId})`);
+        } catch (jwtError) {
+          server.log.error(`❌ JWT verification failed:`, {
+            error: jwtError.message,
+            code: jwtError.code,
+            token: token.substring(0, 20) + "..."
+          });
 
-        server.log.info(`✅ Token decoded for user: ${decoded.email} (ID: ${decoded.userId})`);
+          // Handle specific JWT errors
+          if (jwtError.code === "FAST_JWT_INVALID_SIGNATURE") {
+            return reply
+              .code(401)
+              .send(
+                createOperationOutcome(
+                  "error",
+                  "unauthorized",
+                  "Invalid token signature",
+                ),
+              );
+          }
+
+          if (jwtError.code === "FAST_JWT_EXPIRED") {
+            return reply
+              .code(401)
+              .send(
+                createOperationOutcome("error", "unauthorized", "Token expired"),
+              );
+          }
+
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", `Token verification failed: ${jwtError.message}`),
+            );
+        }
+
+        server.log.info(`🔍 Looking up user in database: ${decoded.userId}`);
 
         // Get user with organization access
         const user = await server.prisma.user.findUnique({
@@ -103,18 +139,30 @@ export default async function authMiddleware(server: FastifyInstance) {
           },
         });
 
-        if (!user || !user.active) {
-          server.log.warn(`❌ Invalid or inactive user: ${decoded.userId}`);
-          reply
+        if (!user) {
+          server.log.warn(`❌ User not found in database: ${decoded.userId}`);
+          return reply
             .code(401)
             .send(
               createOperationOutcome(
                 "error",
                 "unauthorized",
-                "Invalid or inactive user",
+                "User not found",
               ),
             );
-          return;
+        }
+
+        if (!user.active) {
+          server.log.warn(`❌ User is inactive: ${decoded.userId}`);
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome(
+                "error",
+                "unauthorized",
+                "User account is inactive",
+              ),
+            );
         }
 
         server.log.info(`👤 User found: ${user.email}, organization access count: ${user.organizationAccess.length}`);
@@ -150,7 +198,10 @@ export default async function authMiddleware(server: FastifyInstance) {
                 });
                 server.log.info(`✅ Created access for ${user.email} to ${org.name}`);
               } catch (error) {
-                server.log.warn(`⚠️ Failed to create organization access for ${org.id}: ${error.message}`);
+                // Ignore duplicate key errors
+                if (!error.message.includes('Unique constraint')) {
+                  server.log.warn(`⚠️ Failed to create organization access for ${org.id}: ${error.message}`);
+                }
               }
             }
 
@@ -165,8 +216,30 @@ export default async function authMiddleware(server: FastifyInstance) {
 
             // Update organizationIds for this request
             organizationIds = allOrganizations.map(org => org.id);
+            
+            // Update user.organizationAccess for this request
+            user.organizationAccess = allOrganizations.map(org => ({
+              id: `temp-${org.id}`,
+              userId: user.id,
+              organizationId: org.id,
+              role: 'admin',
+              permissions: {},
+              status: 'active',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              organization: {
+                id: org.id,
+                name: org.name,
+                active: true
+              }
+            }));
+
+            server.log.info(`🔄 Updated organization access for super admin: [${organizationIds.join(', ')}]`);
           } catch (error) {
-            server.log.error(`❌ Failed to grant organization access to super admin: ${error}`);
+            server.log.error(`❌ Failed to grant organization access to super admin:`, {
+              error: error.message,
+              stack: error.stack
+            });
           }
         }
 
@@ -181,7 +254,7 @@ export default async function authMiddleware(server: FastifyInstance) {
           !organizationIds.includes(currentOrganizationId)
         ) {
           server.log.warn(`❌ No access to organization: ${currentOrganizationId} for user: ${user.id}`);
-          reply
+          return reply
             .code(403)
             .send(
               createOperationOutcome(
@@ -190,10 +263,10 @@ export default async function authMiddleware(server: FastifyInstance) {
                 "No access to specified organization",
               ),
             );
-          return;
         }
 
-        request.user = {
+        // Create user context object
+        const userContext: User = {
           id: user.id,
           email: user.email,
           role: user.role,
@@ -203,40 +276,42 @@ export default async function authMiddleware(server: FastifyInstance) {
           organizationAccess: user.organizationAccess,
         };
 
+        // Set user context on request
+        request.user = userContext;
+
+        server.log.info(`✅ User context set successfully:`, {
+          email: userContext.email,
+          role: userContext.role,
+          organizationCount: organizationIds.length,
+          currentOrg: currentOrganizationId,
+          url: request.url
+        });
+
         server.log.info(`✅ Authenticated user: ${user.email} for ${request.url} with orgs: [${organizationIds.join(', ')}], current: ${currentOrganizationId}`);
+        
+        // Verify user context is set
+        if (!request.user) {
+          server.log.error(`❌ CRITICAL: request.user is still null after setting!`);
+          return reply
+            .code(500)
+            .send(
+              createOperationOutcome("error", "exception", "Failed to set user context"),
+            );
+        }
+
       } catch (error) {
         server.log.error("❌ Auth middleware error:", {
           error: error.message,
           stack: error.stack,
           code: error.code,
           url: request.url,
-          method: request.method
+          method: request.method,
+          headers: {
+            authorization: request.headers.authorization ? 'Bearer [REDACTED]' : 'missing'
+          }
         });
 
-        // Handle specific JWT errors
-        if (error.code === "FAST_JWT_INVALID_SIGNATURE") {
-          reply
-            .code(401)
-            .send(
-              createOperationOutcome(
-                "error",
-                "unauthorized",
-                "Invalid token signature",
-              ),
-            );
-          return;
-        }
-
-        if (error.code === "FAST_JWT_EXPIRED") {
-          reply
-            .code(401)
-            .send(
-              createOperationOutcome("error", "unauthorized", "Token expired"),
-            );
-          return;
-        }
-
-        reply
+        return reply
           .code(500)
           .send(
             createOperationOutcome("error", "exception", `Authentication error: ${error.message}`),

@@ -44,6 +44,16 @@ export default async function organizationRoutes(server: FastifyInstance) {
       try {
         server.log.info(`🔍 Getting user organizations for: ${request.user?.email}`);
         
+        // Verify user context exists
+        if (!request.user) {
+          server.log.error(`❌ No user context found in request`);
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", "User not authenticated"),
+            );
+        }
+        
         const { id: userId } = request.user;
 
         const userAccess = await server.prisma.userOrganizationAccess.findMany({
@@ -129,6 +139,16 @@ export default async function organizationRoutes(server: FastifyInstance) {
       reply: FastifyReply,
     ) => {
       try {
+        // Verify user context exists
+        if (!request.user) {
+          server.log.error(`❌ No user context found in request`);
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", "User not authenticated"),
+            );
+        }
+
         const { organizationId } = request.body;
         const { organizationIds } = request.user;
 
@@ -200,12 +220,23 @@ export default async function organizationRoutes(server: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         server.log.info(`🏥 Organization search request from: ${request.user?.email}`);
-        server.log.info(`📋 User organization IDs: [${request.user?.organizationIds?.join(', ')}]`);
+        
+        // Verify user context exists
+        if (!request.user) {
+          server.log.error(`❌ No user context found in request`);
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", "User not authenticated"),
+            );
+        }
+
+        server.log.info(`📋 User organization IDs: [${request.user.organizationIds?.join(', ')}]`);
 
         const { organizationIds } = request.user;
 
         if (!organizationIds || organizationIds.length === 0) {
-          server.log.warn(`⚠️ User has no organization access: ${request.user?.email}`);
+          server.log.warn(`⚠️ User has no organization access: ${request.user.email}`);
           const bundle = createBundle("searchset", []);
           return reply.send(bundle);
         }
@@ -280,6 +311,16 @@ export default async function organizationRoutes(server: FastifyInstance) {
       reply: FastifyReply,
     ) => {
       try {
+        // Verify user context exists
+        if (!request.user) {
+          server.log.error(`❌ No user context found in request`);
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", "User not authenticated"),
+            );
+        }
+
         const { id } = request.params;
         const { organizationIds } = request.user;
 
@@ -377,6 +418,16 @@ export default async function organizationRoutes(server: FastifyInstance) {
       reply: FastifyReply,
     ) => {
       try {
+        // Verify user context exists
+        if (!request.user) {
+          server.log.error(`❌ No user context found in request`);
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", "User not authenticated"),
+            );
+        }
+
         if (request.user.role !== "super_admin") {
           return reply
             .code(403)
@@ -470,6 +521,16 @@ export default async function organizationRoutes(server: FastifyInstance) {
       reply: FastifyReply,
     ) => {
       try {
+        // Verify user context exists
+        if (!request.user) {
+          server.log.error(`❌ No user context found in request`);
+          return reply
+            .code(401)
+            .send(
+              createOperationOutcome("error", "unauthorized", "User not authenticated"),
+            );
+        }
+
         const { id } = request.params;
         const { organizationIds } = request.user;
 
