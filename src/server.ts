@@ -184,12 +184,26 @@ if (config.development.enableSwagger) {
   });
 }
 
-// Register middleware
+// Register middleware BEFORE routes
+server.log.info('🔧 Registering middleware...');
+
 if (config.audit.enabled) {
-  await server.register(auditMiddleware);
+  try {
+    await server.register(auditMiddleware);
+    server.log.info('✅ Audit middleware registered');
+  } catch (error) {
+    server.log.error('❌ Failed to register audit middleware:', error);
+    throw error;
+  }
 }
 
-await server.register(authMiddleware);
+try {
+  await server.register(authMiddleware);
+  server.log.info('✅ Auth middleware registered');
+} catch (error) {
+  server.log.error('❌ Failed to register auth middleware:', error);
+  throw error;
+}
 
 // Register routes with correct prefixes
 server.log.info('🔧 Registering routes...');

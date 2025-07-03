@@ -39,16 +39,17 @@ export default async function authMiddleware(server: FastifyInstance) {
       }
 
       if (isPublicRoute) {
+        server.log.info(`🔓 Public route accessed: ${request.method} ${request.url}`);
         return;
       }
 
       try {
-        server.log.info(`Auth check for ${request.method} ${request.url}`);
+        server.log.info(`🔐 Auth check for ${request.method} ${request.url}`);
 
         // Extract token from Authorization header
         const authorization = request.headers.authorization;
         if (!authorization) {
-          server.log.warn(`Missing authorization header for ${request.url}`);
+          server.log.warn(`❌ Missing authorization header for ${request.url}`);
           reply
             .code(401)
             .send(
@@ -63,7 +64,7 @@ export default async function authMiddleware(server: FastifyInstance) {
 
         const token = authorization.replace("Bearer ", "");
         if (!token) {
-          server.log.warn(`Invalid authorization format for ${request.url}`);
+          server.log.warn(`❌ Invalid authorization format for ${request.url}`);
           reply
             .code(401)
             .send(
@@ -76,6 +77,8 @@ export default async function authMiddleware(server: FastifyInstance) {
           return;
         }
 
+        server.log.info(`🔍 Verifying JWT token: ${token.substring(0, 20)}...`);
+
         // Verify JWT token
         const decoded = server.jwt.verify(token) as {
           userId: string;
@@ -83,7 +86,7 @@ export default async function authMiddleware(server: FastifyInstance) {
           role: string;
         };
 
-        server.log.info(`Token decoded for user: ${decoded.email}`);
+        server.log.info(`✅ Token decoded for user: ${decoded.email} (ID: ${decoded.userId})`);
 
         // Get user with organization access
         const user = await server.prisma.user.findUnique({
@@ -101,7 +104,7 @@ export default async function authMiddleware(server: FastifyInstance) {
         });
 
         if (!user || !user.active) {
-          server.log.warn(`Invalid or inactive user: ${decoded.userId}`);
+          server.log.warn(`❌ Invalid or inactive user: ${decoded.userId}`);
           reply
             .code(401)
             .send(
@@ -114,7 +117,7 @@ export default async function authMiddleware(server: FastifyInstance) {
           return;
         }
 
-        server.log.info(`User found: ${user.email}, organization access count: ${user.organizationAccess.length}`);
+        server.log.info(`👤 User found: ${user.email}, organization access count: ${user.organizationAccess.length}`);
 
         // Set user context
         let organizationIds = user.organizationAccess.map(
@@ -123,7 +126,7 @@ export default async function authMiddleware(server: FastifyInstance) {
         
         // If user has no organization access, create access to all organizations for super_admin
         if (organizationIds.length === 0 && user.role === 'super_admin') {
-          server.log.info(`Super admin ${user.email} has no organization access, granting access to all organizations`);
+          server.log.info(`🔧 Super admin ${user.email} has no organization access, granting access to all organizations`);
           
           try {
             // Get all organizations
@@ -132,7 +135,7 @@ export default async function authMiddleware(server: FastifyInstance) {
               select: { id: true, name: true }
             });
 
-            server.log.info(`Found ${allOrganizations.length} organizations to grant access to`);
+            server.log.info(`📋 Found ${allOrganizations.length} organizations to grant access to`);
 
             // Create access for all organizations
             for (const org of allOrganizations) {
@@ -145,9 +148,9 @@ export default async function authMiddleware(server: FastifyInstance) {
                     status: 'active'
                   }
                 });
-                server.log.info(`Created access for ${user.email} to ${org.name}`);
+                server.log.info(`✅ Created access for ${user.email} to ${org.name}`);
               } catch (error) {
-                server.log.warn(`Failed to create organization access for ${org.id}: ${error.message}`);
+                server.log.warn(`⚠️ Failed to create organization access for ${org.id}: ${error.message}`);
               }
             }
 
@@ -157,13 +160,13 @@ export default async function authMiddleware(server: FastifyInstance) {
                 where: { id: user.id },
                 data: { primaryOrganizationId: allOrganizations[0].id }
               });
-              server.log.info(`Set primary organization for ${user.email} to ${allOrganizations[0].name}`);
+              server.log.info(`✅ Set primary organization for ${user.email} to ${allOrganizations[0].name}`);
             }
 
             // Update organizationIds for this request
             organizationIds = allOrganizations.map(org => org.id);
           } catch (error) {
-            server.log.error(`Failed to grant organization access to super admin: ${error}`);
+            server.log.error(`❌ Failed to grant organization access to super admin: ${error}`);
           }
         }
 
@@ -177,7 +180,7 @@ export default async function authMiddleware(server: FastifyInstance) {
           currentOrganizationId &&
           !organizationIds.includes(currentOrganizationId)
         ) {
-          server.log.warn(`No access to organization: ${currentOrganizationId} for user: ${user.id}`);
+          server.log.warn(`❌ No access to organization: ${currentOrganizationId} for user: ${user.id}`);
           reply
             .code(403)
             .send(
@@ -200,9 +203,15 @@ export default async function authMiddleware(server: FastifyInstance) {
           organizationAccess: user.organizationAccess,
         };
 
-        server.log.info(`Authenticated user: ${user.email} for ${request.url} with orgs: [${organizationIds.join(', ')}], current: ${currentOrganizationId}`);
+        server.log.info(`✅ Authenticated user: ${user.email} for ${request.url} with orgs: [${organizationIds.join(', ')}], current: ${currentOrganizationId}`);
       } catch (error) {
-        server.log.error("Auth middleware error:", error);
+        server.log.error("❌ Auth middleware error:", {
+          error: error.message,
+          stack: error.stack,
+          code: error.code,
+          url: request.url,
+          method: request.method
+        });
 
         // Handle specific JWT errors
         if (error.code === "FAST_JWT_INVALID_SIGNATURE") {
